@@ -48,24 +48,78 @@ class SiteController extends Controller
         ')->queryAll();
 
         $sql3 = Yii::$app->db->createCommand('
-            select max(count) as max_count
+            select greatest( 
+     (select coalesce(max(before_start.mx), 0)
+       from (select intervals.datetime, 
+                    max(coalesce(incoming.count, 0) - coalesce(outgoing.count, 0)) mx
             from (
-               select count(datetime) as count
-               from log
-               use index (datetime_status)
-               where datetime >= "2019-08-09 00:00:00"
-                 and datetime <= "2019-08-09 23:59:59"
-                 and status = 1
-               group by datetime
-               union all
-               select count(datetime) as count
-               from log
-               use index (datetime_status)
-               where datetime >= "2019-08-09 00:00:00"
-                 and datetime <= "2019-08-09 23:59:59"
-                 and status = 2
-               group by datetime
-            ) log;
+                select datetime
+                from log
+                where datetime < :start
+            ) intervals left join (
+                select count(*)
+ count, datetime
+                from log
+                  where status = '1'
+                group by datetime
+            ) incoming on incoming.datetime = intervals.datetime
+            left join (
+                select count(*)
+ count, datetime
+                from log
+                  where status = '2'
+                group by datetime
+            ) outgoing on intervals.datetime = outgoing.datetime
+            group by intervals.datetime
+      ) before_start)
+    , (select coalesce(max(from_start_to_end.mx), 0)
+       from (select intervals.datetime, 
+                    max(coalesce(incoming.count, 0) - coalesce(outgoing.count, 0)) mx
+            from (
+                select datetime
+                from log
+                where datetime >= :start
+                      and datetime <= :end
+            ) intervals left join (
+                select count(*)
+ count, datetime
+                from log
+                  where status = '1'
+                group by datetime
+            ) incoming on incoming.datetime = intervals.datetime
+            left join (
+                select count(*)
+ count, datetime
+                from log
+                  where status = '2'
+                group by datetime
+            ) outgoing on intervals.datetime = outgoing.datetime
+            group by intervals.datetime
+      ) from_start_to_end)
+    , (select coalesce(max(after_end.mx), 0)
+       from (select intervals.datetime, 
+                    max(coalesce(incoming.count, 0) - coalesce(outgoing.count, 0)) mx
+            from (
+                select datetime
+                from log
+                where datetime > :end
+            ) intervals left join (
+                select count(*)
+ count, datetime
+                from log
+                  where status = '1'
+                group by datetime
+            ) incoming on incoming.datetime = intervals.datetime
+            left join (
+                select count(*)
+ count, datetime
+                from log
+                  where status = '2'
+                group by datetime
+            ) outgoing on intervals.datetime = outgoing.datetime
+            group by intervals.datetime
+      ) after_end)
+);
         ')->queryScalar();
 
         return $this->render('index', [
